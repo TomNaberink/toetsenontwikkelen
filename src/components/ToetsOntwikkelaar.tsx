@@ -42,6 +42,8 @@ export default function ToetsOntwikkelaar() {
   })
   const [isGenerating, setIsGenerating] = useState(false)
   const [gegenereerdeToets, setGegenereerdeToets] = useState('')
+  const [vragenVersie, setVragenVersie] = useState('')
+  const [antwoordenVersie, setAntwoordenVersie] = useState('')
   const [error, setError] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -176,10 +178,209 @@ export default function ToetsOntwikkelaar() {
     }))
   }
 
+  // Functie om vragen en antwoorden te scheiden
+  const scheidVragenEnAntwoorden = (toetsContent: string) => {
+    const lines = toetsContent.split('\n')
+    let vragenContent = ''
+    let antwoordenContent = ''
+    let isInAntwoordenSectie = false
+    
+    // Zoek naar "DEEL 2" of "ANTWOORDEN" sectie
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      
+      if (line.includes('DEEL 2') || line.includes('ANTWOORDEN') || line.includes('**ANTWOORDEN**')) {
+        isInAntwoordenSectie = true
+        antwoordenContent += line + '\n'
+      } else if (isInAntwoordenSectie) {
+        antwoordenContent += line + '\n'
+      } else {
+        vragenContent += line + '\n'
+      }
+    }
+    
+    // Als er geen duidelijke scheiding is, probeer op basis van patronen
+    if (!isInAntwoordenSectie) {
+      const vragenRegex = /^\d+\.\s/gm
+      const antwoordRegex = /^(Antwoord|Uitleg|Bloom-niveau):/gm
+      
+      let currentVraag = ''
+      let currentAntwoord = ''
+      let isVraag = true
+      
+      for (const line of lines) {
+        if (vragenRegex.test(line)) {
+          if (currentVraag) vragenContent += currentVraag + '\n\n'
+          if (currentAntwoord) antwoordenContent += currentAntwoord + '\n\n'
+          currentVraag = line
+          currentAntwoord = ''
+          isVraag = true
+        } else if (antwoordRegex.test(line) || line.includes('Bloom-niveau:')) {
+          if (isVraag && currentVraag) {
+            vragenContent += currentVraag + '\n\n'
+            currentVraag = ''
+          }
+          currentAntwoord += line + '\n'
+          isVraag = false
+        } else if (isVraag) {
+          currentVraag += '\n' + line
+        } else {
+          currentAntwoord += line + '\n'
+        }
+      }
+      
+      // Voeg laatste items toe
+      if (currentVraag) vragenContent += currentVraag + '\n'
+      if (currentAntwoord) antwoordenContent += currentAntwoord + '\n'
+    }
+    
+    return { vragenContent: vragenContent.trim(), antwoordenContent: antwoordenContent.trim() }
+  }
+
+  // Functie om Word document te downloaden
+  const downloadWordDocument = async (content: string, filename: string, title: string) => {
+    try {
+      // Import Packer dynamically
+      const { Document, Paragraph, TextRun, HeadingLevel, Packer } = await import('docx')
+      
+      // Maak titel
+      const titleParagraph = new Paragraph({
+        children: [new TextRun({
+          text: title,
+          bold: true,
+          size: 32,
+          color: "2563eb"
+        })],
+        heading: HeadingLevel.TITLE,
+        spacing: { after: 400 }
+      })
+      
+      // Maak subtitel met toets info
+      const vraagTypesBeschrijving = specificatie.vraagTypes.map(vt => {
+        const type = beschikbareVraagTypes.find(bt => bt.id === vt.type)
+        return `${vt.aantal}x ${type?.label.split(' ')[0] || vt.type}`
+      }).join(', ')
+      
+      const subtitleParagraph = new Paragraph({
+        children: [new TextRun({
+          text: `${specificatie.onderwerp} | ${specificatie.niveau.toUpperCase()} | ${vraagTypesBeschrijving}`,
+          italics: true,
+          size: 20,
+          color: "666666"
+        })],
+        spacing: { after: 600 }
+      })
+      
+      // Converteer markdown content naar Word paragraphs
+      const contentLines = content.split('\n')
+      const paragraphs = [titleParagraph, subtitleParagraph]
+      
+      for (const line of contentLines) {
+        if (line.trim() === '') {
+          paragraphs.push(new Paragraph({
+            children: [new TextRun({ text: "" })],
+            spacing: { after: 200 }
+          }))
+        } else if (line.startsWith('# ')) {
+          paragraphs.push(new Paragraph({
+            children: [new TextRun({
+              text: line.replace('# ', ''),
+              bold: true,
+              size: 28,
+              color: "1f2937"
+            })],
+            heading: HeadingLevel.HEADING_1,
+            spacing: { before: 400, after: 200 }
+          }))
+        } else if (line.startsWith('## ')) {
+          paragraphs.push(new Paragraph({
+            children: [new TextRun({
+              text: line.replace('## ', ''),
+              bold: true,
+              size: 24,
+              color: "374151"
+            })],
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 300, after: 150 }
+          }))
+        } else if (line.match(/^\d+\.\s/)) {
+          // Vraag nummering
+          paragraphs.push(new Paragraph({
+            children: [new TextRun({
+              text: line,
+              bold: true,
+              size: 22
+            })],
+            spacing: { before: 300, after: 150 }
+          }))
+        } else if (line.startsWith('**') && line.endsWith('**')) {
+          // Bold text
+          paragraphs.push(new Paragraph({
+            children: [new TextRun({
+              text: line.replace(/\*\*/g, ''),
+              bold: true,
+              size: 20
+            })],
+            spacing: { after: 150 }
+          }))
+        } else {
+          // Normale tekst
+          paragraphs.push(new Paragraph({
+            children: [new TextRun({
+              text: line,
+              size: 20
+            })],
+            spacing: { after: 120 }
+          }))
+        }
+      }
+      
+      // Voeg footer toe
+      const footerParagraph = new Paragraph({
+        children: [new TextRun({
+          text: `Gegenereerd op ${new Date().toLocaleDateString('nl-NL')} | Toets Ontwikkelaar AI`,
+          size: 16,
+          color: "9ca3af",
+          italics: true
+        })],
+        spacing: { before: 600 }
+      })
+      paragraphs.push(footerParagraph)
+      
+      const doc = new Document({
+        creator: "Toets Ontwikkelaar AI",
+        title: title,
+        description: `${specificatie.onderwerp} toets voor ${specificatie.niveau}`,
+        sections: [{
+          properties: {},
+          children: paragraphs
+        }]
+      })
+      
+      const blob = await Packer.toBlob(doc)
+      
+      // Download
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+      
+    } catch (error) {
+      console.error('Word download failed:', error)
+      alert('Fout bij downloaden van Word document: ' + (error instanceof Error ? error.message : 'Onbekende fout'))
+    }
+  }
+
   const genereerToets = async () => {
     setIsGenerating(true)
     setError('')
     setGegenereerdeToets('')
+    setVragenVersie('')
+    setAntwoordenVersie('')
 
     try {
       // Bouw vraagtype beschrijving
@@ -263,6 +464,14 @@ Format de output als een professionele toets met duidelijke nummering en structu
 
       const data = await response.json()
       setGegenereerdeToets(data.response)
+      
+      // Als apart formaat is gekozen, splits de content
+      if (specificatie.outputFormaat === 'apart') {
+        const { vragenContent, antwoordenContent } = scheidVragenEnAntwoorden(data.response)
+        setVragenVersie(vragenContent)
+        setAntwoordenVersie(antwoordenContent)
+      }
+      
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Onbekende fout opgetreden')
     } finally {
@@ -283,6 +492,8 @@ Format de output als een professionele toets met duidelijke nummering en structu
       outputFormaat: 'samen'
     })
     setGegenereerdeToets('')
+    setVragenVersie('')
+    setAntwoordenVersie('')
     setError('')
   }
 
@@ -332,15 +543,125 @@ Format de output als een professionele toets met duidelijke nummering en structu
             </div>
           </div>
 
-          <div className="bg-white border rounded-lg p-6">
-            <MarkdownRenderer content={gegenereerdeToets} />
-          </div>
+          {/* Toon verschillende versies afhankelijk van het gekozen formaat */}
+          {specificatie.outputFormaat === 'samen' ? (
+            // Samen formaat - toon alles in één blok
+            <div>
+              <div className="bg-white border rounded-lg p-6 mb-4">
+                <MarkdownRenderer content={gegenereerdeToets} />
+              </div>
 
-          <ResponseActions 
-            content={gegenereerdeToets}
-            isMarkdown={true}
-            className="mt-4"
-          />
+              <ResponseActions 
+                content={gegenereerdeToets}
+                isMarkdown={true}
+                className="mb-4"
+              />
+
+              {/* Extra Word download knop */}
+              <div className="flex justify-center">
+                <button
+                  onClick={() => downloadWordDocument(
+                    gegenereerdeToets, 
+                    `Toets_${specificatie.onderwerp.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.docx`,
+                    `Toets: ${specificatie.onderwerp}`
+                  )}
+                  className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center space-x-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span>📄 Download Complete Toets (Word)</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            // Apart formaat - toon twee aparte secties
+            <div className="space-y-6">
+              {/* Vragen sectie */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold text-blue-800">📝 Alleen Vragen</h3>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => downloadWordDocument(
+                        vragenVersie, 
+                        `Vragen_${specificatie.onderwerp.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.docx`,
+                        `Vragen: ${specificatie.onderwerp}`
+                      )}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span>Download Vragen</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-white border rounded-lg p-4">
+                  <MarkdownRenderer content={vragenVersie} />
+                </div>
+                <ResponseActions 
+                  content={vragenVersie}
+                  isMarkdown={true}
+                  className="mt-3"
+                />
+              </div>
+
+              {/* Antwoorden sectie */}
+              <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold text-green-800">✅ Antwoorden & Uitleg</h3>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => downloadWordDocument(
+                        antwoordenVersie, 
+                        `Antwoorden_${specificatie.onderwerp.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.docx`,
+                        `Antwoorden: ${specificatie.onderwerp}`
+                      )}
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span>Download Antwoorden</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-white border rounded-lg p-4">
+                  <MarkdownRenderer content={antwoordenVersie} />
+                </div>
+                <ResponseActions 
+                  content={antwoordenVersie}
+                  isMarkdown={true}
+                  className="mt-3"
+                />
+              </div>
+
+              {/* Centrale download knop voor beide versies */}
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={() => downloadWordDocument(
+                    vragenVersie, 
+                    `Vragen_${specificatie.onderwerp.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.docx`,
+                    `Vragen: ${specificatie.onderwerp}`
+                  )}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
+                >
+                  <span>📝 Download Alleen Vragen</span>
+                </button>
+                <button
+                  onClick={() => downloadWordDocument(
+                    antwoordenVersie, 
+                    `Antwoorden_${specificatie.onderwerp.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.docx`,
+                    `Antwoorden: ${specificatie.onderwerp}`
+                  )}
+                  className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center space-x-2"
+                >
+                  <span>✅ Download Alleen Antwoorden</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
@@ -715,6 +1036,9 @@ Format de output als een professionele toets met duidelijke nummering en structu
                   <strong>ANTWOORDEN:</strong><br/>
                   1. A) Uitleg...<br/>
                   2. B) Uitleg...
+                </div>
+                <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                  <strong>💡 Bonus:</strong> Je krijgt 2 aparte Word documenten die je direct kunt downloaden!
                 </div>
               </div>
             </div>
