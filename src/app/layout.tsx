@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Gemini Template - Tom Naberink',
-  description: 'Een template om te werken met Gemini AI - Gemaakt door Tom Naberink',
+  title: 'Toets Ontwikkelaar - AI voor Docenten',
+  description: 'AI-gestuurde tool voor het ontwikkelen van professionele kennistoetsen voor het onderwijs',
 }
 
 export default function RootLayout({
@@ -18,4 +18,4 @@ export default function RootLayout({
       </body>
     </html>
   )
-} 
+}
