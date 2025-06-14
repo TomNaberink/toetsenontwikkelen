@@ -10,14 +10,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Geen bestand gevonden' }, { status: 400 })
     }
 
-    // Check file type - now supports multiple formats
+    // Check file type - now supports DOCX, TXT, MD, CSV
     const fileName = file.name.toLowerCase()
     const isDocx = fileName.endsWith('.docx')
-    const isPdf = fileName.endsWith('.pdf')
     const isCsv = fileName.endsWith('.csv')
+    const isText = fileName.endsWith('.txt') || fileName.endsWith('.md')
     
-    if (!isDocx && !isPdf && !isCsv) {
-      return NextResponse.json({ error: 'Ondersteunde formaten: .docx, .pdf, .csv' }, { status: 400 })
+    if (!isDocx && !isCsv && !isText) {
+      return NextResponse.json({ error: 'Ondersteunde formaten: .docx, .txt, .md, .csv' }, { status: 400 })
     }
 
     // Check file size (max 10MB)
@@ -37,17 +37,10 @@ export async function POST(request: NextRequest) {
       const result = await mammoth.extractRawText({ buffer })
       textContent = result.value
       fileType = 'Word Document (.docx)'
-    } else if (isPdf) {
-      // Extract text from .pdf using pdf-parse with dynamic import
-      try {
-        const pdfParse = (await import('pdf-parse')).default
-        const pdfData = await pdfParse(buffer)
-        textContent = pdfData.text
-        fileType = 'PDF Document (.pdf)'
-      } catch (pdfError) {
-        console.error('PDF parsing error:', pdfError)
-        return NextResponse.json({ error: 'Fout bij het lezen van het PDF bestand' }, { status: 400 })
-      }
+    } else if (isText) {
+      // Parse text files
+      textContent = buffer.toString('utf-8')
+      fileType = fileName.endsWith('.md') ? 'Markdown Document (.md)' : 'Text Document (.txt)'
     } else if (isCsv) {
       // Parse CSV file
       try {
@@ -108,4 +101,4 @@ export async function GET() {
     { error: 'GET method not allowed. Use POST to upload files.' },
     { status: 405 }
   )
-} 
+}

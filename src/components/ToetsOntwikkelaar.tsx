@@ -120,12 +120,13 @@ export default function ToetsOntwikkelaar() {
     try {
       const fileName = file.name.toLowerCase()
       
-      // Ondersteunde formaten
+      // Ondersteunde formaten (zonder PDF)
       const isText = fileName.endsWith('.txt') || fileName.endsWith('.md')
-      const isDocument = fileName.endsWith('.pdf') || fileName.endsWith('.docx')
+      const isDocument = fileName.endsWith('.docx')
+      const isCsv = fileName.endsWith('.csv')
       
-      if (!isText && !isDocument) {
-        alert('Ondersteunde formaten: .txt, .md, .pdf, .docx')
+      if (!isText && !isDocument && !isCsv) {
+        alert('Ondersteunde formaten: .txt, .md, .docx, .csv')
         return
       }
 
@@ -135,7 +136,7 @@ export default function ToetsOntwikkelaar() {
         // Lees tekstbestanden direct
         content = await file.text()
       } else {
-        // Voor PDF/DOCX gebruik de upload API
+        // Voor DOCX/CSV gebruik de upload API
         const formData = new FormData()
         formData.append('file', file)
 
@@ -923,7 +924,7 @@ Format de output als een professionele toets met duidelijke nummering en structu
                         <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                       <p className="text-gray-600">Upload extra documenten voor context</p>
-                      <p className="text-sm text-gray-500">PDF, DOCX, TXT, MD bestanden</p>
+                      <p className="text-sm text-gray-500">DOCX, TXT, MD, CSV bestanden</p>
                     </div>
                     <button
                       onClick={() => fileInputRef.current?.click()}
@@ -979,7 +980,7 @@ Format de output als een professionele toets met duidelijke nummering en structu
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.docx,.txt,.md"
+              accept=".docx,.txt,.md,.csv"
               onChange={(e) => {
                 const file = e.target.files?.[0]
                 if (file) {
